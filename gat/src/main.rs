@@ -13,12 +13,9 @@ mod print_tree;
 mod compression;
 
 
-/// Search for a pattern in a file and display the lines that contain it.
 #[derive(ClapParser)]
 struct Cli {
-    /// The pattern to look for
     path: std::path::PathBuf,
-    /// The path to the file to read
     language: String,
 }
 
