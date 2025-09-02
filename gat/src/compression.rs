@@ -121,8 +121,7 @@ impl Compressor {
             };
         }
 
-        encode_stream!(path, encode_node_file, "node_file");
-        encode_stream!(path, encode_node_file_type_optimization, "node_file_type_opt");
+        encode_stream!(path, encode_node_file_type_optimization, "node_file");
         encode_stream!(path, encode_strings, "strings");
         encode_stream!(path, encode_types, "types");
         encode_stream!(path, encode_data_file, "data");
