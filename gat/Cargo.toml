@@ -1,0 +1,10 @@
+[package]
+name = "gat"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tree-sitter =  "0.25.8"
+tree-sitter-rust = "0.24.0"
+tree-sitter-javascript = "*"
+crypto-rsl = "*"
