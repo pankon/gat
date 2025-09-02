@@ -1,7 +1,9 @@
+use crypto::digest::Digest;
+use crypto::sha1::Sha1;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 use tree_sitter::{Node, Parser, Query, Tree};
 
@@ -83,8 +85,8 @@ fn encode_string(str: &str, out: &mut Vec<u8>) {
 fn encode_i32(int: i32, out: &mut Vec<u8>) {
     let mut copy = int;
 
-    for i in 0..4 {
-        out.push(i & 0xff);
+    for _ in 0..2 {
+        out.push((copy & 0xff).try_into().unwrap());
         copy >>= 8;
     }
 }
@@ -100,20 +102,20 @@ impl Compressor {
         }
     }
 
-    fn encode(&self) -> Vec<u8> {
+    fn encode(&self) -> (Vec<u8>, Vec<u8>, String) {
         let mut out = Vec::new();
+        let mut strings = Vec::new();
 
-        encode_string("GAT0", &mut out);
-
-        encode_i32(self.current_string_id + 1, &mut out);
-        encode_i32(self.nodes.len() as i32, &mut out);
-        encode_i32(self.data_nodes.len() as i32, &mut out);
-
+        encode_string("GAT0", &mut strings);
+        encode_i32(self.seen_strs.keys().len() as i32, &mut strings);
         for key in self.seen_strs.keys() {
-            encode_i32(key.len() as i32, &mut out);
-            encode_string(key.as_str(), &mut out);
+            encode_i32(key.len() as i32, &mut strings);
+            encode_string(key.as_str(), &mut strings);
         }
 
+        encode_string("GAT0", &mut out);
+        encode_i32(self.nodes.len() as i32, &mut out);
+        encode_i32(self.data_nodes.len() as i32, &mut out);
         for node in self.nodes.iter() {
             node.encode(&mut out);
         }
@@ -122,7 +124,12 @@ impl Compressor {
             node.encode(&mut out);
         }
 
-        out
+        let mut hasher = Sha1::new();
+        hasher.input(&out);
+        let result_str = hasher.result_str();
+        // hasher.result(&mut out);
+
+        (out, strings, result_str)
     }
 
     fn compress_tree(&mut self, node: &Node, depth: i32, source: &[u8]) -> i32 {
@@ -130,8 +137,8 @@ impl Compressor {
 
         self.current_string_id += 1;
         let kind_id = self.current_string_id;
-        self.seen_strs
-            .insert(node.kind().to_string(), self.current_string_id);
+        /*self.seen_strs
+        .insert(node.kind().to_string(), self.current_string_id);*/
         let text = node.utf8_text(source);
         if node.child_count() == 0 {
             self.current_string_id += 1;
@@ -191,4 +198,10 @@ fn main() {
 
     let mut compressor = Compressor::new();
     compressor.compress_tree(&root_node, 0, source_code.as_bytes());
+    let (result, strings, name) = compressor.encode();
+    let mut file = File::create(name + ".gat").unwrap();
+    file.write_all(&result).unwrap();
+
+    let mut file = File::create("strings.gat").unwrap();
+    file.write_all(&strings).unwrap();
 }
