@@ -27,6 +27,9 @@ fn main() {
 
     let language = match args.language.as_str() {
         "rust" => &tree_sitter_rust::LANGUAGE.into(),
+        "cpp" => &tree_sitter_cpp::LANGUAGE.into(),
+        "python" => &tree_sitter_python::LANGUAGE.into(),
+        "js" => &tree_sitter_javascript::LANGUAGE.into(),
         _ => panic!("Unsupported language"),
     };
 
