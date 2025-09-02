@@ -7,17 +7,37 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use tree_sitter::{Node, Parser, Query, Tree};
 use varint_rs::VarintWriter;
+use clap::Parser as ClapParser;
+
 mod print_tree;
 mod compression;
 
+
+/// Search for a pattern in a file and display the lines that contain it.
+#[derive(ClapParser)]
+struct Cli {
+    /// The pattern to look for
+    path: std::path::PathBuf,
+    /// The path to the file to read
+    language: String,
+}
+
 // for all i32 we need to really use a varint probably, eventually
 fn main() {
+    let args = Cli::parse();
+
     let mut parser = Parser::new();
+
+    let language = match args.language.as_str() {
+        "rust" => &tree_sitter_rust::LANGUAGE.into(),
+        _ => panic!("Unsupported language"),
+    };
+
     parser
-        .set_language(&tree_sitter_rust::LANGUAGE.into())
+        .set_language(language)
         .expect("Error loading Rust grammar");
 
-    let mut file = File::open("../fake_repo/main.rs").unwrap();
+    let mut file = File::open(args.path).unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     let source_code = contents.as_str(); // "let x = 1;";

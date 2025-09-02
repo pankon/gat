@@ -9,3 +9,4 @@ tree-sitter-rust = "0.24.0"
 tree-sitter-javascript = "*"
 crypto-rsl = "*"
 varint-rs = "*"
+clap = { version = "4.5.47", features = ["derive"] }
