@@ -7,6 +7,7 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use tree_sitter::{Node, Parser, Query, Tree};
 use varint_rs::VarintWriter;
+use crate::print_tree;
 
 // for all i32 we need to really use a varint probably, eventually
 struct CompressTreeDataNode {
@@ -19,6 +20,10 @@ impl CompressTreeDataNode {
     fn encode<W: Write>(&self, writer: &mut W) {
         encode_i32(self.id, writer);
         encode_i32(self.kind, writer);
+    }
+
+    fn partial_encode<W: Write>(&self, writer: &mut W) {
+        encode_i32(self.id, writer);
     }
 
     fn encode_data<W: Write>(&self, writer: &mut W) {
@@ -39,6 +44,14 @@ impl CompressTreeNode {
         encode_i32(self.id, writer);
         encode_i32(self.kind, writer);
         // this is a tad naive but simple enough
+        encode_i32(self.children.len() as i32, writer);
+        for child in self.children.iter() {
+            encode_i32(*child, writer);
+        }
+    }
+
+    fn partial_encode<W: Write>(&self, writer: &mut W) {
+        encode_i32(self.id, writer);
         encode_i32(self.children.len() as i32, writer);
         for child in self.children.iter() {
             encode_i32(*child, writer);
@@ -97,6 +110,9 @@ impl Compressor {
         let mut node_file = File::create(path.clone() + "/node_file.gat").unwrap();
         self.encode_node_file(&mut node_file);
 
+        let mut node_file = File::create(path.clone() + "/node_file_type_opt.gat").unwrap();
+        self.encode_node_file_type_optimization(&mut node_file);
+
         let mut strings_file = File::create(path.clone() + "/strings.gat").unwrap();
         self.encode_strings(&mut strings_file);
 
@@ -105,6 +121,8 @@ impl Compressor {
 
         let mut data_file = File::create(path.clone() + "/data.gat").unwrap();
         self.encode_data_file(&mut data_file);
+        
+        
     }
 
     pub fn compress_tree(&mut self, node: &Node, depth: i32, source: &[u8]) -> i32 {
@@ -172,15 +190,53 @@ impl Compressor {
         }
     }
 
+    fn encode_node_file_type_optimization<W: Write + Seek>(&self, writer: &mut W) {
+        encode_string("GAT0", writer);
+        encode_i32(self.nodes.len() as i32, writer);
+        encode_i32(self.data_nodes.len() as i32, writer);
+
+        // we can save space by grouping "types"
+        let mut nodes_types_hashmap = HashMap::<i32, Vec<&CompressTreeNode>>::new();
+        let mut data_types_hashmap = HashMap::<i32, Vec<&CompressTreeDataNode>>::new();
+
+        for node in self.nodes.iter() {
+            if let Some(a) = nodes_types_hashmap.get_mut(&node.kind) {
+                a.push(node);
+            } else {
+                nodes_types_hashmap.insert(node.kind, vec![node]);
+            }
+        }
+
+        for node in self.data_nodes.iter() {
+            if let Some(a) = data_types_hashmap.get_mut(&node.kind) {
+                a.push(node);
+            } else {
+                data_types_hashmap.insert(node.kind, vec![node]);
+            }
+        }
+
+        for (key, node_vec) in nodes_types_hashmap.iter() {
+            encode_i32(*key, writer);
+            encode_i32(node_vec.len() as i32, writer);
+            for node in node_vec {
+                node.partial_encode(writer);
+            }
+        }
+
+        for (key, node_vec) in data_types_hashmap.iter() {
+            encode_i32(*key, writer);
+            encode_i32(node_vec.len() as i32, writer);
+            for node in node_vec {
+                node.partial_encode(writer);
+            }
+        }
+    }
+
     fn encode_node_file<W: Write + Seek>(&self, writer: &mut W) {
         encode_string("GAT0", writer);
         encode_i32(self.nodes.len() as i32, writer);
         encode_i32(self.data_nodes.len() as i32, writer);
         for node in self.nodes.iter() {
-            node.encode(writer);
-        }
-
-        for node in self.data_nodes.iter() {
             node.encode(writer);
         }
     }

@@ -50,7 +50,8 @@ fn main() {
 
     // basically compress types at start of file, creating a generic ast filesystem
     // which will be used by the diff mechanism
-    print_tree::print_tree(&root_node, 0, source_code.as_bytes());
+    let mut ast_file = File::create("./ast.gat").unwrap();
+    print_tree::print_tree(&root_node, 0, source_code.as_bytes(), &mut ast_file);
 
     let mut compressor = compression::Compressor::new();
     compressor.compress_tree(&root_node, 0, source_code.as_bytes());
