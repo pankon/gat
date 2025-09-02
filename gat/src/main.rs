@@ -1,3 +1,4 @@
+use clap::Parser as ClapParser;
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use std::any::Any;
@@ -7,11 +8,9 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::fd::AsRawFd;
 use tree_sitter::{Node, Parser, Query, Tree};
 use varint_rs::VarintWriter;
-use clap::Parser as ClapParser;
 
-mod print_tree;
 mod compression;
-
+mod print_tree;
 
 #[derive(ClapParser)]
 struct Cli {

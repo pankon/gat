@@ -1,11 +1,11 @@
 use crate::print_tree;
+use buf_read_write::BufStream;
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use buf_read_write::BufStream;
 use std::os::fd::AsRawFd;
 use std::panic::resume_unwind;
 use tree_sitter::{Node, Parser, Query, Tree};
@@ -110,15 +110,14 @@ impl Compressor {
 
     pub fn encode_to_filesystem(&self, path: String) {
         macro_rules! encode_stream {
-            ($path: ident, $name:ident, $file_name:literal) => {
-                {
-                    let mut node_file = File::create(format!("{}/{}.gat", $path.clone(), $file_name)).unwrap();
-                    let mut node_stream = BufWriter::new(Vec::new());
-                    self.$name(&mut node_stream);
-                    let node_stream_read = BufReader::new(node_stream.buffer());
-                    zstd::stream::copy_encode(node_stream_read, node_file, 9).unwrap();
-                }
-            };
+            ($path: ident, $name:ident, $file_name:literal) => {{
+                let mut node_file =
+                    File::create(format!("{}/{}.gat", $path.clone(), $file_name)).unwrap();
+                let mut node_stream = BufWriter::new(Vec::new());
+                self.$name(&mut node_stream);
+                let node_stream_read = BufReader::new(node_stream.buffer());
+                zstd::stream::copy_encode(node_stream_read, node_file, 9).unwrap();
+            }};
         }
 
         encode_stream!(path, encode_node_file_type_optimization, "node_file");
