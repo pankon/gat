@@ -2,12 +2,10 @@ use clap::Parser as ClapParser;
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
 use std::any::Any;
-use std::collections::HashMap;
 use std::fs::File;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, Write};
 use std::os::fd::AsRawFd;
-use tree_sitter::{Node, Parser, Query, Tree};
-use varint_rs::VarintWriter;
+use tree_sitter::Parser;
 
 mod compression;
 mod print_tree;
@@ -19,6 +17,7 @@ struct Cli {
 }
 
 // for all i32 we need to really use a varint probably, eventually
+// todo: InputEdit, tree.edit in tree-sitter
 fn main() {
     let args = Cli::parse();
 
@@ -54,5 +53,5 @@ fn main() {
 
     let mut compressor = compression::Compressor::new();
     compressor.compress_tree(&root_node, 0, source_code.as_bytes());
-    compressor.encode_to_filesystem(".".to_string());
+    compressor.encode_to_filesystem(".".to_string(), true);
 }

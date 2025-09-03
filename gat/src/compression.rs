@@ -1,13 +1,6 @@
-use crate::print_tree;
-use buf_read_write::BufStream;
-use crypto::digest::Digest;
-use crypto::sha1::Sha1;
-use std::any::Any;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::os::fd::AsRawFd;
-use std::panic::resume_unwind;
 use tree_sitter::{Node, Parser, Query, Tree};
 use varint_rs::VarintWriter;
 
@@ -61,16 +54,6 @@ impl CompressTreeNode {
     }
 }
 
-pub struct Compressor {
-    seen_strs: HashMap<String, i32>,
-    seen_types: HashMap<String, i32>,
-    current_id: i32,
-    current_kind_id: i32,
-    current_string_id: i32,
-    nodes: Vec<CompressTreeNode>,
-    data_nodes: Vec<CompressTreeDataNode>,
-}
-
 fn encode_string<W: Write>(str: &str, writer: &mut W) {
     writer.write(str.as_bytes()).unwrap();
 }
@@ -95,11 +78,30 @@ fn encode_string_hashmap_keys<W: Write, T>(hash_map: HashMap<String, T>, writer:
     }
 }
 
+#[derive(Clone)]
+pub struct Str {
+    start: i32,
+    end: i32,
+    id: i32,
+}
+
+pub struct Compressor {
+    seen_strs: HashMap<String, i32>,
+    seen_types: HashMap<String, i32>,
+    current_id: i32,
+    current_kind_id: i32,
+    current_string_id: i32,
+    nodes: Vec<CompressTreeNode>,
+    data_nodes: Vec<CompressTreeDataNode>,
+    start_to_id: HashMap<i32, Str>,
+}
+
 impl Compressor {
     pub fn new() -> Self {
         Self {
             seen_types: HashMap::new(),
             seen_strs: HashMap::new(),
+            start_to_id: HashMap::new(),
             current_id: 0,
             current_kind_id: 0,
             current_string_id: 0,
@@ -108,15 +110,19 @@ impl Compressor {
         }
     }
 
-    pub fn encode_to_filesystem(&self, path: String) {
+    pub fn encode_to_filesystem(&self, path: String, do_compression: bool) {
         macro_rules! encode_stream {
             ($path: ident, $name:ident, $file_name:literal) => {{
                 let mut node_file =
                     File::create(format!("{}/{}.gat", $path.clone(), $file_name)).unwrap();
-                let mut node_stream = BufWriter::new(Vec::new());
-                self.$name(&mut node_stream);
-                let node_stream_read = BufReader::new(node_stream.buffer());
-                zstd::stream::copy_encode(node_stream_read, node_file, 9).unwrap();
+                if do_compression {
+                    let mut node_stream = BufWriter::new(Vec::new());
+                    self.$name(&mut node_stream);
+                    let node_stream_read = BufReader::new(node_stream.buffer());
+                    zstd::stream::copy_encode(node_stream_read, node_file, 9).unwrap();
+                } else {
+                    self.$name(&mut node_file);
+                }
             }};
         }
 
@@ -124,10 +130,13 @@ impl Compressor {
         encode_stream!(path, encode_strings, "strings");
         encode_stream!(path, encode_types, "types");
         encode_stream!(path, encode_data_file, "data");
+        encode_stream!(path, encode_raw_strs, "raw");
     }
 
     pub fn compress_tree(&mut self, node: &Node, depth: i32, source: &[u8]) -> i32 {
         self.current_id += 1;
+
+        let range = node.range();
 
         let kind = node.kind().to_string();
         let mut kind_id = 0;
@@ -159,6 +168,15 @@ impl Compressor {
             };
 
             self.data_nodes.push(new_root);
+
+            self.start_to_id.insert(
+                range.start_byte as i32,
+                Str {
+                    start: range.start_byte as i32,
+                    end: range.end_byte as i32,
+                    id: text_id,
+                },
+            );
 
             return self.current_id.clone();
         }
@@ -258,6 +276,43 @@ impl Compressor {
 
         for node in self.data_nodes.iter() {
             node.encode(writer);
+        }
+    }
+
+    fn encode_raw_strs<W: Write>(&self, writer: &mut W) {
+        encode_string("GAT0 RAW", writer);
+        let mut sorted_starts = self.start_to_id.clone().into_keys().collect::<Vec<i32>>();
+        sorted_starts.sort();
+
+        // find runs
+        let mut runs: Vec<Vec<Str>> = vec![];
+        for (idx, start) in sorted_starts.iter().enumerate() {
+            let current = self.start_to_id.get(&start).unwrap().to_owned();
+            if runs.len() == 0 {
+                runs.push(vec![current]);
+                continue;
+            }
+
+            let mut last_run = runs.last_mut().unwrap();
+            let last_item = last_run.last().unwrap();
+            if last_item.end == current.start - 1 {
+                // we have a run, plus a space!
+                last_run.push(Str{start:last_item.end, end: current.start, id: 0});
+                last_run.push(current);
+            } else if last_item.end == current.start {
+                // we have a run!
+                last_run.push(current);
+            } else {
+                // new run!
+                runs.push(vec![current]);
+            }
+        }
+
+        for run in runs {
+            encode_i32(run.len() as i32, writer);
+            for item in run {
+                encode_i32(item.id, writer);
+            }
         }
     }
 }
