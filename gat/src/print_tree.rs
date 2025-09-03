@@ -1,6 +1,5 @@
 use std::io::Write;
 use tree_sitter::{Node, Parser, Query, Tree};
-use varint_rs::VarintWriter;
 
 pub fn print_tree<W: Write>(node: &Node, depth: i32, source: &[u8], writer: &mut W) {
     let mut padding = "".to_string();
