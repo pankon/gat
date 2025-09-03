@@ -2,6 +2,7 @@ use crate::vfs::Vfs;
 use clap::Parser as ClapParser;
 use crypto::digest::Digest;
 use crypto::sha1::Sha1;
+use glob::glob;
 use std::any::Any;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
@@ -15,8 +16,7 @@ mod vfs;
 
 #[derive(ClapParser)]
 struct Cli {
-    path: std::path::PathBuf,
-    language: String,
+    glob_pattern: String,
 }
 
 // for all i32 we need to really use a varint probably, eventually
@@ -24,21 +24,25 @@ struct Cli {
 fn main() {
     let args = Cli::parse();
 
-    let mut parser = Parser::new();
-
-    let language = match args.language.as_str() {
-        "rust" => &tree_sitter_rust::LANGUAGE.into(),
-        "cpp" => &tree_sitter_cpp::LANGUAGE.into(),
-        "python" => &tree_sitter_python::LANGUAGE.into(),
-        "js" => &tree_sitter_javascript::LANGUAGE.into(),
-        _ => panic!("Unsupported language"),
-    };
-
-    parser
-        .set_language(language)
-        .expect("Error loading Rust grammar");
-
     let mut vfs = Vfs::new(PathBuf::from(".gat"));
-    vfs.encode_file(PathBuf::from(args.path), args.language.as_str());
-    vfs.encode_strings();
+    for entry in glob(args.glob_pattern.as_str()).unwrap() {
+        let entry_unwrapped = entry.unwrap();
+        if entry_unwrapped.clone().to_str().unwrap().contains("/.") {
+            continue;
+        }
+
+        let mut extension = "";
+        if let Some(val) = entry_unwrapped.extension() {
+            extension = val.to_str().unwrap();
+        }
+
+        vfs.encode_file(
+            PathBuf::from(entry_unwrapped.clone()),
+            extension,
+        );
+
+        // todo: this is still pretty naive, we need to have a priority heap where more used
+        // strings have a lower number, obviously
+        vfs.encode_strings();
+    }
 }

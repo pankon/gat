@@ -27,9 +27,29 @@ impl Vfs {
         self.compressor.encode_strings_only(self.path_buf.clone())
     }
 
-    pub fn encode_file(&mut self, full_file_path: PathBuf, language: &str) {
+    pub fn encode_file(&mut self, full_file_path: PathBuf, extension: &str) {
         let mut parser = Parser::new();
-        let language = match language {
+
+        let def_lang = match extension {
+            "rs" => "rust",
+            "cpp" => "cpp",
+            "cc" => "cpp",
+            "h" => "h",
+            "hpp" => "h",
+            "py" => "python",
+            "js" => "js",
+            _ => "",
+        };
+
+        if def_lang == "" {
+            // skip
+            // println!("skipping: {}", full_file_path.display());
+            return;
+        }
+
+        println!("encoding: {}", full_file_path.display());
+
+        let language = match def_lang {
             "rust" => &tree_sitter_rust::LANGUAGE.into(),
             "cpp" => &tree_sitter_cpp::LANGUAGE.into(),
             "python" => &tree_sitter_python::LANGUAGE.into(),

@@ -13,4 +13,5 @@ clap = { version = "4.5.47", features = ["derive"] }
 tree-sitter-cpp = "0.23.4"
 tree-sitter-python = "0.23.6"
 zstd = "0.13.3"
-buf_read_write = "*"
+hex = "0.4.3"
+glob = "0.3.3"
