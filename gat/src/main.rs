@@ -5,6 +5,7 @@ use std::any::Any;
 use std::fs::File;
 use std::io::{Read, Seek, Write};
 use std::os::fd::AsRawFd;
+use std::path::PathBuf;
 use tree_sitter::Parser;
 
 mod compression;
@@ -48,10 +49,12 @@ fn main() {
 
     // basically compress types at start of file, creating a generic ast filesystem
     // which will be used by the diff mechanism
-    let mut ast_file = File::create("./ast.gat").unwrap();
-    print_tree::print_tree(&root_node, 0, source_code.as_bytes(), &mut ast_file);
-
+    // let mut ast_file = File::create("./ast.gat").unwrap();
+    // print_tree::print_tree(&root_node, 0, source_code.as_bytes(), &mut ast_file);
+    //
     let mut compressor = compression::Compressor::new();
-    compressor.compress_tree(&root_node, 0, source_code.as_bytes());
-    compressor.encode_to_filesystem(".".to_string(), true);
+    compressor.encode_file(PathBuf::from("."), true, &root_node, source_code.as_bytes());
+    // compressor.compress_tree(&root_node, 0, source_code.as_bytes());
+    // compressor.encode_to_filesystem(".".to_string(), true);
+
 }

@@ -1,6 +1,9 @@
+use crypto::digest::Digest;
+use crypto::sha2::Sha256;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::path::PathBuf;
 use tree_sitter::{Node, Parser, Query, Tree};
 use varint_rs::VarintWriter;
 
@@ -96,6 +99,35 @@ pub struct Compressor {
     start_to_id: HashMap<i32, Str>,
 }
 
+macro_rules! encode_stream_compress {
+    ($self:ident, $path: ident, $do_sha_name:ident, $file_name: literal, $name:ident) => {{
+        let mut out_stream = BufWriter::new(Vec::new());
+
+        let mut node_stream = BufWriter::new(Vec::new());
+        $self.$name(&mut node_stream);
+        let node_stream_read = BufReader::new(node_stream.buffer());
+        let encoded = zstd::stream::encode_all(node_stream_read, 9).unwrap();
+
+        $self.write_file($path.clone(), $do_sha_name, $file_name, encoded);
+    }};
+}
+
+macro_rules! encode_stream_no_compress {
+    ($self:ident, $path: ident, $do_sha_name:ident, $file_name: literal, $name:ident) => {{
+        let mut out_stream = BufWriter::new(Vec::new());
+
+        $self.$name(&mut out_stream);
+
+        let buf = out_stream.buffer().clone().to_vec();
+        $self.write_file(
+            $path.clone(),
+            $do_sha_name,
+            $file_name,
+            buf.iter().map(|a| *a).collect(),
+        );
+    }};
+}
+
 impl Compressor {
     pub fn new() -> Self {
         Self {
@@ -110,27 +142,39 @@ impl Compressor {
         }
     }
 
-    pub fn encode_to_filesystem(&self, path: String, do_compression: bool) {
-        macro_rules! encode_stream {
-            ($path: ident, $name:ident, $file_name:literal) => {{
-                let mut node_file =
-                    File::create(format!("{}/{}.gat", $path.clone(), $file_name)).unwrap();
-                if do_compression {
-                    let mut node_stream = BufWriter::new(Vec::new());
-                    self.$name(&mut node_stream);
-                    let node_stream_read = BufReader::new(node_stream.buffer());
-                    zstd::stream::copy_encode(node_stream_read, node_file, 9).unwrap();
-                } else {
-                    self.$name(&mut node_file);
-                }
-            }};
+    fn write_file(&self, path: PathBuf, do_sha_name: bool, file_name: &str, backing: Vec<u8>) {
+        if do_sha_name {
+            let mut hasher = Sha256::new();
+            hasher.input(&*backing.clone());
+            let mut result: [u8; 32] = [0; 32];
+            hasher.result(&mut result);
+            let mut node_file = File::create(path.clone().join(hex::encode(result))).unwrap();
+            node_file.write_all(&*backing.clone()).unwrap();
+        } else {
+            let mut node_file = File::create(path.clone().join(file_name)).unwrap();
+            node_file.write_all(&*backing.clone());
         }
+    }
 
-        encode_stream!(path, encode_node_file_type_optimization, "node_file");
-        encode_stream!(path, encode_strings, "strings");
-        encode_stream!(path, encode_types, "types");
-        encode_stream!(path, encode_data_file, "data");
-        encode_stream!(path, encode_raw_strs, "raw");
+    pub fn encode_to_filesystem(&self, path: PathBuf, do_compression: bool) {
+        encode_stream_compress!(
+            self,
+            path,
+            false,
+            "node_file",
+            encode_node_file_type_optimization
+        );
+        encode_stream_compress!(self, path, false, "strings", encode_strings);
+        encode_stream_compress!(self, path, false, "types", encode_types);
+        encode_stream_compress!(self, path, false, "data", encode_data_file);
+        encode_stream_compress!(self, path, false, "raw", encode_raw_strs);
+    }
+
+    pub fn encode_file(&mut self, path: PathBuf, do_compression: bool, node: &Node, source: &[u8]) {
+        // sugar
+        self.compress_tree(node, 0, source);
+        encode_stream_compress!(self, path, false, "strings", encode_strings);
+        encode_stream_compress!(self, path, true, "raw", encode_raw_strs);
     }
 
     pub fn compress_tree(&mut self, node: &Node, depth: i32, source: &[u8]) -> i32 {
@@ -297,7 +341,11 @@ impl Compressor {
             let last_item = last_run.last().unwrap();
             if last_item.end == current.start - 1 {
                 // we have a run, plus a space!
-                last_run.push(Str{start:last_item.end, end: current.start, id: 0});
+                last_run.push(Str {
+                    start: last_item.end,
+                    end: current.start,
+                    id: 0,
+                });
                 last_run.push(current);
             } else if last_item.end == current.start {
                 // we have a run!
