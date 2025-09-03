@@ -1,6 +1,7 @@
 use crypto::digest::Digest;
 use crypto::sha2::Sha256;
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
@@ -148,7 +149,13 @@ impl Compressor {
             hasher.input(&*backing.clone());
             let mut result: [u8; 32] = [0; 32];
             hasher.result(&mut result);
-            let mut node_file = File::create(path.clone().join(hex::encode(result))).unwrap();
+            let full_hash = hex::encode(result);
+
+            // keep git format
+            let first_two = full_hash[0..2].to_string();
+            let root_dir = path.clone().join(first_two);
+            fs::create_dir_all(root_dir.clone()).unwrap();
+            let mut node_file = File::create(root_dir.join(full_hash[2..].to_string())).unwrap();
             node_file.write_all(&*backing.clone()).unwrap();
         } else {
             let mut node_file = File::create(path.clone().join(file_name)).unwrap();
@@ -175,6 +182,16 @@ impl Compressor {
         self.compress_tree(node, 0, source);
         encode_stream_compress!(self, path, false, "strings", encode_strings);
         encode_stream_compress!(self, path, true, "raw", encode_raw_strs);
+    }
+
+    pub fn encode_file_only(&mut self, path: PathBuf, node: &Node, source: &[u8]) {
+        // sugar
+        self.compress_tree(node, 0, source);
+        encode_stream_compress!(self, path, true, "raw", encode_raw_strs);
+    }
+
+    pub fn encode_strings_only(&self, path: PathBuf) {
+        encode_stream_compress!(self, path, false, "strings", encode_strings);
     }
 
     pub fn compress_tree(&mut self, node: &Node, depth: i32, source: &[u8]) -> i32 {
